@@ -1,0 +1,33 @@
+export const dynamic = "force-dynamic";
+import Link from "next/link";
+import { Bot, CheckCircle2, Play, Plus, UserPlus, Workflow } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { EmptyState, Metric, PageFrame, SectionHeader } from "@/components/page-frame";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { getWorkspaceOverview } from "@/server/services/demo-workspace.service";
+import { runNewLeadAssistantDemo } from "@/app/app/workflows/actions";
+
+export default async function Page() {
+  const data = await getWorkspaceOverview();
+  const today = new Intl.DateTimeFormat("en-US", { dateStyle: "full", timeZone: data.workspace.timezone }).format(new Date());
+  return <PageFrame title={`Good afternoon, ${data.workspace.name}`} description={`${today}. Your workspace is running on the ${data.workspace.plan.toLowerCase()} plan with mock AI available for local demos.`} actions={<><Button asChild variant="outline"><Link href="/app/agents/new"><Bot className="size-4" />Create agent</Link></Button><Button asChild variant="outline"><Link href="/app/workflows/new"><Plus className="size-4" />Create workflow</Link></Button><form action={runNewLeadAssistantDemo}><Button type="submit"><Play className="size-4" />Run demo</Button></form><Button asChild variant="outline"><Link href="/app/team"><UserPlus className="size-4" />Invite</Link></Button></>}>
+    <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+      <Metric label="Active workflows" value={String(data.metrics.activeWorkflows)} detail="Tenant-scoped active automations" />
+      <Metric label="Success rate" value={`${Math.round(data.metrics.successRate * 100)}%`} detail="Completed vs failed executions" tone="good" />
+      <Metric label="Executions" value={String(data.metrics.executionsThisMonth)} detail="Recent workspace executions" />
+      <Metric label="Pending approvals" value={String(data.metrics.pendingApprovals)} detail="Human decisions waiting" tone={data.metrics.pendingApprovals ? "warn" : "default"} />
+      <Metric label="AI requests" value={String(data.metrics.aiRequests)} detail={`${data.metrics.tokenConsumption.toLocaleString()} tracked tokens`} />
+      <Metric label="Time saved" value={`${Math.round(data.metrics.savedStaffTimeMinutes / 60)}h`} detail="Estimated from completed runs" />
+    </div>
+    <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+      <Card><CardHeader><SectionHeader title="Recent workflow executions" description="Live execution status, trigger source, and completed step count." action={<Button asChild variant="ghost" size="sm"><Link href="/app/executions">View all</Link></Button>} /></CardHeader><CardContent className="space-y-2">{data.executions.length ? data.executions.slice(0, 6).map((execution) => <Link href={`/app/executions/${execution.id}`} key={execution.id} className="grid gap-3 rounded-md border p-3 text-sm hover:bg-muted md:grid-cols-[1fr_auto_auto]"><div><div className="font-medium">{execution.workflowName}</div><div className="text-muted-foreground">{execution.triggerType} trigger · {execution.steps} steps</div></div><StatusBadge status={execution.status} /><span className="text-xs text-muted-foreground">{execution.createdAt.toLocaleString()}</span></Link>) : <EmptyState title="No executions yet" description="Run the New Lead Assistant demo to create a complete execution trace, contact, task, notification, and audit log." />}</CardContent></Card>
+      <Card><CardHeader><SectionHeader title="Pending approvals" description="Sensitive actions pause here before continuing." action={<Button asChild variant="ghost" size="sm"><Link href="/app/approvals">Review</Link></Button>} /></CardHeader><CardContent className="space-y-2">{data.approvals.filter((approval) => approval.status === "PENDING").length ? data.approvals.filter((approval) => approval.status === "PENDING").slice(0, 4).map((approval) => <div key={approval.id} className="rounded-md border p-3 text-sm"><div className="flex items-center justify-between gap-2"><div className="font-medium">{approval.requestedAction}</div><StatusBadge status={approval.status} /></div><p className="mt-1 text-muted-foreground">{approval.humanSummary}</p><div className="mt-2 text-xs text-muted-foreground">Risk: {approval.riskLevel}</div></div>) : <EmptyState title="No approvals waiting" description="Approval-required workflow steps will appear here with risk context and reviewer notes." />}</CardContent></Card>
+    </div>
+    <div className="grid gap-4 lg:grid-cols-3">
+      <Card><CardHeader><CardTitle className="flex items-center gap-2"><Bot className="size-4 text-primary" />Active agents</CardTitle></CardHeader><CardContent className="space-y-2">{data.agents.slice(0, 4).map((agent) => <Link href={`/app/agents/${agent.id}`} key={agent.id} className="block rounded-md border p-3 text-sm hover:bg-muted"><div className="flex items-center justify-between gap-2"><span className="font-medium">{agent.name}</span><StatusBadge status={agent.status} /></div><div className="mt-1 text-xs text-muted-foreground">{agent.modelProvider}/{agent.modelName} · {agent.tools.length} tools</div></Link>)}</CardContent></Card>
+      <Card><CardHeader><CardTitle className="flex items-center gap-2"><Workflow className="size-4 text-primary" />Workflow performance</CardTitle></CardHeader><CardContent className="space-y-2">{data.workflows.map((workflow) => <div key={workflow.id} className="rounded-md border p-3 text-sm"><div className="flex items-center justify-between"><span className="font-medium">{workflow.name}</span><span className="tabular-nums">{Math.round(workflow.successRate * 100)}%</span></div><div className="mt-2 h-1.5 rounded bg-muted"><div className="h-1.5 rounded bg-primary" style={{ width: `${Math.max(4, Math.round(workflow.successRate * 100))}%` }} /></div></div>)}</CardContent></Card>
+      <Card><CardHeader><CardTitle className="flex items-center gap-2"><CheckCircle2 className="size-4 text-primary" />Workspace activity</CardTitle></CardHeader><CardContent className="space-y-3">{data.activity.slice(0, 5).map((item) => <div key={item.id} className="border-l-2 border-primary pl-3 text-sm"><div className="font-medium">{item.action}</div><div className="text-xs text-muted-foreground">{item.details}</div></div>)}</CardContent></Card>
+    </div>
+  </PageFrame>;
+}

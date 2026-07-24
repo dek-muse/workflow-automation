@@ -1,0 +1,3 @@
+﻿import { PageFrame } from "@/components/page-frame";
+const features = ["Multi-tenant workspaces", "AI agents", "Workflow engine", "Approval center", "Integrations framework", "Audit logs", "Usage analytics", "Billing foundation"];
+export default function FeaturesPage() { return <main className="p-8"><PageFrame title="Features" description="The platform foundation is structured around secure automation operations."><div className="grid gap-3 md:grid-cols-2">{features.map((feature) => <div className="rounded-md border bg-card p-4 text-sm font-medium" key={feature}>{feature}</div>)}</div></PageFrame></main>; }

@@ -1,0 +1,684 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+enum WorkspaceRole {
+  OWNER
+  ADMIN
+  AUTOMATION_MANAGER
+  APPROVER
+  OPERATOR
+  ANALYST
+  VIEWER
+}
+
+enum WorkspacePlan {
+  FREE
+  STARTER
+  BUSINESS
+  AGENCY
+}
+
+enum AgentStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  ARCHIVED
+}
+
+enum WorkflowStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  ARCHIVED
+}
+
+enum ExecutionStatus {
+  QUEUED
+  RUNNING
+  WAITING_FOR_APPROVAL
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
+  CANCELLED
+}
+
+enum ContactStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  CUSTOMER
+  INACTIVE
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  WAITING
+  COMPLETED
+  CANCELLED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum IntegrationStatus {
+  DISCONNECTED
+  CONNECTED
+  ERROR
+  PAUSED
+}
+
+enum NotificationType {
+  APPROVAL_REQUIRED
+  WORKFLOW_COMPLETED
+  WORKFLOW_FAILED
+  INTEGRATION_DISCONNECTED
+  USAGE_LIMIT_WARNING
+  TEAM_INVITATION
+  AGENT_ERROR
+}
+
+enum AuditResult {
+  SUCCESS
+  FAILURE
+  DENIED
+}
+
+model User {
+  id            String @id @default(cuid()) @map("_id")
+  name          String?
+  email         String            @unique
+  emailVerified DateTime?
+  image         String?
+  passwordHash  String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  accounts      Account[]
+  sessions      Session[]
+  memberships   WorkspaceMember[]
+  createdAgents Agent[]           @relation("AgentCreatedBy")
+  tasksCreated  Task[]            @relation("TaskCreatedBy")
+  tasksAssigned Task[]            @relation("TaskAssignedTo")
+  notifications Notification[]
+  auditLogs     AuditLog[]
+}
+
+model Account {
+  id                String @id @default(cuid()) @map("_id")
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String @id @default(cuid()) @map("_id")
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  id         String   @id @default(cuid()) @map("_id")
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model Workspace {
+  id               String @id @default(cuid()) @map("_id")
+  name             String
+  slug             String              @unique
+  logoUrl          String?
+  industry         String?
+  timezone         String              @default("UTC")
+  defaultLanguage  String              @default("en")
+  plan             WorkspacePlan       @default(FREE)
+  settings         Json                @default("{}")
+  usageLimits      Json                @default("{}")
+  deletedAt        DateTime?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  members          WorkspaceMember[]
+  invitations      Invitation[]
+  agents           Agent[]
+  prompts          Prompt[]
+  workflows        Workflow[]
+  executions       WorkflowExecution[]
+  approvals        ApprovalRequest[]
+  integrations     Integration[]
+  contacts         Contact[]
+  tasks            Task[]
+  notifications    Notification[]
+  auditLogs        AuditLog[]
+  usageRecords     UsageRecord[]
+  subscription     Subscription?
+  apiKeys          ApiKey[]
+  webhookEndpoints WebhookEndpoint[]
+}
+
+model WorkspaceMember {
+  id          String @id @default(cuid()) @map("_id")
+  workspaceId String
+  userId      String
+  role        WorkspaceRole @default(VIEWER)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@index([userId])
+}
+
+model Role {
+  id          String @id @default(cuid()) @map("_id")
+  key         String   @unique
+  name        String
+  permissions String[]
+}
+
+model Invitation {
+  id          String @id @default(cuid()) @map("_id")
+  workspaceId String
+  email       String
+  role        WorkspaceRole
+  tokenHash   String
+  status      String        @default("pending")
+  expiresAt   DateTime
+  createdAt   DateTime      @default(now())
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, email])
+}
+
+model Agent {
+  id                 String @id @default(cuid()) @map("_id")
+  workspaceId        String
+  name               String
+  description        String?
+  purpose            String
+  systemInstructions String               
+  modelProvider      String                @default("mock")
+  modelName          String                @default("mock-business-agent")
+  temperature        Float                 @default(0.2)
+  toolPermissions    Json                  @default("[]")
+  knowledgeSources   Json                  @default("[]")
+  approvalPolicy     Json                  @default("{}")
+  maxSteps           Int                   @default(6)
+  timeoutSeconds     Int                   @default(60)
+  status             AgentStatus           @default(DRAFT)
+  version            Int                   @default(1)
+  createdById        String?
+  updatedById        String?
+  deletedAt          DateTime?
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+  workspace          Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy          User?                 @relation("AgentCreatedBy", fields: [createdById], references: [id])
+  versions           AgentVersion[]
+  toolPermissionRows AgentToolPermission[]
+  aiRequests         AiRequest[]
+
+  @@index([workspaceId, status])
+}
+
+model AgentVersion {
+  id        String @id @default(cuid()) @map("_id")
+  agentId   String
+  version   Int
+  snapshot  Json
+  createdAt DateTime @default(now())
+  agent     Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@unique([agentId, version])
+}
+
+model AgentToolPermission {
+  id        String @id @default(cuid()) @map("_id")
+  agentId   String
+  toolName  String
+  allowed   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  agent     Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@unique([agentId, toolName])
+}
+
+model Prompt {
+  id             String @id @default(cuid()) @map("_id")
+  workspaceId    String
+  key            String
+  name           String
+  currentVersion Int             @default(1)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  workspace      Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  versions       PromptVersion[]
+
+  @@unique([workspaceId, key])
+}
+
+model PromptVersion {
+  id        String @id @default(cuid()) @map("_id")
+  promptId  String
+  version   Int
+  content   String  
+  variables Json     @default("[]")
+  createdAt DateTime @default(now())
+  prompt    Prompt   @relation(fields: [promptId], references: [id], onDelete: Cascade)
+
+  @@unique([promptId, version])
+}
+
+model Workflow {
+  id            String @id @default(cuid()) @map("_id")
+  workspaceId   String
+  name          String
+  description   String?
+  triggerType   String
+  triggerConfig Json                @default("{}")
+  status        WorkflowStatus      @default(DRAFT)
+  version       Int                 @default(1)
+  retryPolicy   Json                @default("{}")
+  errorHandling Json                @default("{}")
+  deletedAt     DateTime?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+  workspace     Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  versions      WorkflowVersion[]
+  nodes         WorkflowNode[]
+  edges         WorkflowEdge[]
+  executions    WorkflowExecution[]
+
+  @@index([workspaceId, status])
+}
+
+model WorkflowVersion {
+  id         String @id @default(cuid()) @map("_id")
+  workflowId String
+  version    Int
+  snapshot   Json
+  createdAt  DateTime @default(now())
+  workflow   Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  @@unique([workflowId, version])
+}
+
+model WorkflowNode {
+  id         String @id @default(cuid()) @map("_id")
+  workflowId String
+  key        String
+  type       String
+  name       String
+  config     Json     @default("{}")
+  position   Json     @default("{}")
+  sortOrder  Int      @default(0)
+  workflow   Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  @@unique([workflowId, key])
+  @@index([workflowId, sortOrder])
+}
+
+model WorkflowEdge {
+  id            String @id @default(cuid()) @map("_id")
+  workflowId    String
+  sourceNodeKey String
+  targetNodeKey String
+  condition     Json?
+  workflow      Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  @@index([workflowId])
+}
+
+model WorkflowExecution {
+  id             String @id @default(cuid()) @map("_id")
+  workspaceId    String
+  workflowId     String
+  status         ExecutionStatus         @default(QUEUED)
+  idempotencyKey String
+  input          Json                    @default("{}")
+  output         Json?
+  error          Json?
+  startedAt      DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+  workspace      Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workflow       Workflow                @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  steps          WorkflowStepExecution[]
+  approvals      ApprovalRequest[]
+  tasks          Task[]
+  toolExecutions ToolExecution[]
+  aiRequests     AiRequest[]
+
+  @@unique([workflowId, idempotencyKey])
+  @@index([workspaceId, status, createdAt])
+}
+
+model WorkflowStepExecution {
+  id          String @id @default(cuid()) @map("_id")
+  executionId String
+  nodeKey     String
+  nodeType    String
+  status      ExecutionStatus   @default(QUEUED)
+  input       Json              @default("{}")
+  output      Json?
+  error       Json?
+  attempt     Int               @default(0)
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  execution   WorkflowExecution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+
+  @@index([executionId, nodeKey])
+}
+
+model ApprovalRequest {
+  id              String @id @default(cuid()) @map("_id")
+  workspaceId     String
+  executionId     String?
+  agentId         String?
+  workflowId      String?
+  requestedAction String
+  inputPayload    Json
+  humanSummary    String
+  riskLevel       String
+  requestedById   String?
+  status          ApprovalStatus     @default(PENDING)
+  decidedById     String?
+  decidedAt       DateTime?
+  reviewerNotes   String?
+  expiresAt       DateTime?
+  createdAt       DateTime           @default(now())
+  workspace       Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  execution       WorkflowExecution? @relation(fields: [executionId], references: [id])
+
+  @@index([workspaceId, status, createdAt])
+}
+
+model Integration {
+  id          String @id @default(cuid()) @map("_id")
+  workspaceId String
+  key         String
+  name        String
+  status      IntegrationStatus       @default(DISCONNECTED)
+  config      Json                    @default("{}")
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
+  workspace   Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  credentials IntegrationCredential[]
+  events      IntegrationEvent[]
+
+  @@unique([workspaceId, key])
+}
+
+model IntegrationCredential {
+  id              String @id @default(cuid()) @map("_id")
+  integrationId   String
+  encryptedSecret String     
+  keyVersion      String      @default("v1")
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  integration     Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+}
+
+model IntegrationEvent {
+  id            String @id @default(cuid()) @map("_id")
+  integrationId String
+  eventType     String
+  payload       Json
+  processedAt   DateTime?
+  createdAt     DateTime    @default(now())
+  integration   Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+
+  @@index([integrationId, createdAt])
+}
+
+model ToolDefinition {
+  id                  String @id @default(cuid()) @map("_id")
+  name                String          @unique
+  description         String
+  inputSchema         Json
+  outputSchema        Json
+  requiredPermissions String[]
+  readOnly            Boolean         @default(true)
+  destructive         Boolean         @default(false)
+  approvalRequired    Boolean         @default(false)
+  timeoutMs           Int             @default(10000)
+  retryPolicy         Json            @default("{}")
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+  executions          ToolExecution[]
+}
+
+model ToolExecution {
+  id               String @id @default(cuid()) @map("_id")
+  workspaceId      String
+  toolName         String
+  toolDefinitionId String?
+  executionId      String?
+  input            Json
+  output           Json?
+  status           ExecutionStatus    @default(RUNNING)
+  error            Json?
+  durationMs       Int?
+  createdAt        DateTime           @default(now())
+  toolDefinition   ToolDefinition?    @relation(fields: [toolDefinitionId], references: [id])
+  execution        WorkflowExecution? @relation(fields: [executionId], references: [id])
+
+  @@index([workspaceId, toolName, createdAt])
+}
+
+model Contact {
+  id             String @id @default(cuid()) @map("_id")
+  workspaceId    String
+  firstName      String
+  lastName       String?
+  email          String?
+  phone          String?
+  company        String?
+  jobTitle       String?
+  source         String?
+  status         ContactStatus @default(NEW)
+  tags           String[]
+  notes          String?
+  assignedUserId String?
+  deletedAt      DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  workspace      Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  tasks          Task[]
+
+  @@index([workspaceId, status])
+  @@index([workspaceId, email])
+}
+
+model ContactTag {
+  id          String @id @default(cuid()) @map("_id")
+  workspaceId String
+  name        String
+  color       String @default("#0f766e")
+
+  @@unique([workspaceId, name])
+}
+
+model Task {
+  id          String @id @default(cuid()) @map("_id")
+  workspaceId String
+  title       String
+  description String?
+  priority    TaskPriority       @default(MEDIUM)
+  status      TaskStatus         @default(TODO)
+  assigneeId  String?
+  dueDate     DateTime?
+  contactId   String?
+  workflowId  String?
+  executionId String?
+  createdById String?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  workspace   Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  assignee    User?              @relation("TaskAssignedTo", fields: [assigneeId], references: [id])
+  createdBy   User?              @relation("TaskCreatedBy", fields: [createdById], references: [id])
+  contact     Contact?           @relation(fields: [contactId], references: [id])
+  execution   WorkflowExecution? @relation(fields: [executionId], references: [id])
+
+  @@index([workspaceId, status, dueDate])
+}
+
+model Notification {
+  id          String @id @default(cuid()) @map("_id")
+  workspaceId String
+  userId      String?
+  type        NotificationType
+  title       String
+  body        String
+  readAt      DateTime?
+  metadata    Json             @default("{}")
+  createdAt   DateTime         @default(now())
+  workspace   Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User?            @relation(fields: [userId], references: [id])
+
+  @@index([workspaceId, readAt, createdAt])
+}
+
+model AuditLog {
+  id           String @id @default(cuid()) @map("_id")
+  workspaceId  String?
+  actorId      String?
+  action       String
+  entityType   String
+  entityId     String?
+  previousData Json?
+  newData      Json?
+  ipAddress    String?
+  userAgent    String?
+  result       AuditResult @default(SUCCESS)
+  createdAt    DateTime    @default(now())
+  workspace    Workspace?  @relation(fields: [workspaceId], references: [id])
+  actor        User?       @relation(fields: [actorId], references: [id])
+
+  @@index([workspaceId, action, createdAt])
+}
+
+model AiRequest {
+  id                 String @id @default(cuid()) @map("_id")
+  workspaceId        String
+  agentId            String?
+  executionId        String?
+  provider           String
+  model              String
+  promptVersion      String?
+  inputTokens        Int                @default(0)
+  outputTokens       Int                @default(0)
+  estimatedCostCents Int                @default(0)
+  request            Json
+  response           Json?
+  status             ExecutionStatus    @default(COMPLETED)
+  createdAt          DateTime           @default(now())
+  agent              Agent?             @relation(fields: [agentId], references: [id])
+  execution          WorkflowExecution? @relation(fields: [executionId], references: [id])
+
+  @@index([workspaceId, createdAt])
+}
+
+model UsageRecord {
+  id          String @id @default(cuid()) @map("_id")
+  workspaceId String
+  metric      String
+  quantity    Int
+  unit        String
+  periodStart DateTime
+  periodEnd   DateTime
+  metadata    Json      @default("{}")
+  createdAt   DateTime  @default(now())
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, metric, periodStart])
+}
+
+model Subscription {
+  id                     String @id @default(cuid()) @map("_id")
+  workspaceId            String        @unique
+  plan                   WorkspacePlan
+  status                 String        @default("active")
+  provider               String?
+  providerCustomerId     String?
+  providerSubscriptionId String?
+  currentPeriodEnd       DateTime?
+  createdAt              DateTime      @default(now())
+  updatedAt              DateTime      @updatedAt
+  workspace              Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+model ApiKey {
+  id          String @id @default(cuid()) @map("_id")
+  workspaceId String
+  name        String
+  keyHash     String
+  prefix      String
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?
+  createdAt   DateTime  @default(now())
+  revokedAt   DateTime?
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, prefix])
+}
+
+model WebhookEndpoint {
+  id          String @id @default(cuid()) @map("_id")
+  workspaceId String
+  name        String
+  secretHash  String
+  urlPath     String         @unique
+  enabled     Boolean        @default(true)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  workspace   Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  events      WebhookEvent[]
+}
+
+model WebhookEvent {
+  id          String @id @default(cuid()) @map("_id")
+  endpointId  String
+  signature   String
+  payload     Json
+  processedAt DateTime?
+  createdAt   DateTime        @default(now())
+  endpoint    WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+
+  @@index([endpointId, createdAt])
+}
